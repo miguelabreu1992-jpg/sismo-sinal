@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sismo Orchestra Visualizer</title>
+  <style>
+    :root {
+      --ink: #f2f0e9;
+      --muted: #9da39e;
+      --line: #293537;
+      --panel: #111b1d;
+      --bg: #071012;
+      --cyan: #7fe4d2;
+      --orange: #f4a261;
+      --pink: #ef7c91;
+      --yellow: #e8d36b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      color: var(--ink);
+      background: radial-gradient(circle at 85% 0%, #183b3a 0, transparent 35%), var(--bg);
+      font: 15px/1.4 Georgia, "Times New Roman", serif;
+    }
+    header, main { width: min(1180px, calc(100% - 36px)); margin: auto; }
+    header { padding: 34px 0 22px; display: flex; justify-content: space-between; gap: 24px; align-items: end; }
+    h1 { margin: 0; font-size: clamp(30px, 5vw, 58px); font-weight: 400; letter-spacing: 0; }
+    .kicker { color: var(--cyan); text-transform: uppercase; letter-spacing: 2px; font: 11px/1.2 Arial, sans-serif; }
+    .status { text-align: right; color: var(--muted); font: 12px Arial, sans-serif; }
+    .status strong { display: block; color: var(--cyan); font-size: 14px; margin-bottom: 4px; }
+    .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    button, select { color: var(--ink); background: #1a292a; border: 1px solid #41605d; border-radius: 4px; padding: 9px 12px; font: 12px Arial, sans-serif; }
+    button { cursor: pointer; }
+    button:hover { border-color: var(--cyan); }
+    .legend { margin-left: auto; color: var(--muted); font: 12px Arial, sans-serif; }
+    .dot { display: inline-block; width: 9px; height: 9px; margin: 0 5px 0 12px; border-radius: 50%; background: var(--cyan); }
+    .dot:first-child { margin-left: 0; }
+    .chart-shell { margin: 22px 0 40px; padding: 16px; background: rgba(17, 27, 29, .9); border: 1px solid var(--line); }
+    canvas { display: block; width: 100%; height: 540px; }
+    .readout { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-top: 16px; background: var(--line); }
+    .readout article { min-height: 90px; padding: 14px; background: var(--panel); }
+    .station { font: 12px Arial, sans-serif; color: var(--muted); letter-spacing: 1px; }
+    .value { margin-top: 8px; font-size: 22px; }
+    .meta { color: var(--muted); font: 11px Arial, sans-serif; }
+    @media (max-width: 700px) {
+      header { display: block; }
+      .status { margin-top: 14px; text-align: left; }
+      .legend { width: 100%; margin-left: 0; }
+      canvas { height: 620px; }
+      .readout { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div><div class="kicker">Live seismic score</div><h1>Earth / Orchestra</h1></div>
+    <div class="status"><strong id="connection">A ligar ao registo...</strong><span id="updated">Sem leitura</span></div>
+  </header>
+  <main>
+    <div class="toolbar">
+      <button id="refresh" type="button">Atualizar agora</button>
+      <label for="window">Janela</label>
+      <select id="window"><option value="60">1 minuto</option><option value="300" selected>5 minutos</option><option value="900">15 minutos</option><option value="3600">1 hora</option></select>
+      <div class="legend"><span class="dot"></span>amplitude <span class="dot" style="background:var(--orange)"></span>frequência</div>
+    </div>
+    <section class="chart-shell"><canvas id="chart" aria-label="Série temporal das quatro estações sísmicas"></canvas><div id="readout" class="readout"></div></section>
+  </main>
+  <script>
+    const stations = ["ANMO", "COLA", "KONO", "MAJO"];
+    const colors = { ANMO: "#7fe4d2", COLA: "#f4a261", KONO: "#ef7c91", MAJO: "#e8d36b" };
+    let records = [];
+    const canvas = document.getElementById("chart");
+    const context = canvas.getContext("2d");
+
+    function parseCsv(text) {
+      const lines = text.trim().split(/\r?\n/);
+      if (lines.length < 2) return [];
+      const headers = lines[0].split(",");
+      return lines.slice(1).map(line => {
+        const values = line.split(",");
+        return Object.fromEntries(headers.map((header, index) => [header, values[index]]));
+      }).filter(row => stations.includes(row.station) && Number.isFinite(Date.parse(row.event_time_utc)));
+    }
+
+    function resizeCanvas() {
+      const ratio = window.devicePixelRatio || 1;
+      const box = canvas.getBoundingClientRect();
+      canvas.width = box.width * ratio;
+      canvas.height = box.height * ratio;
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      draw();
+    }
+
+    function draw() {
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      context.clearRect(0, 0, width, height);
+      context.fillStyle = "#0c1719";
+      context.fillRect(0, 0, width, height);
+      const left = 62, right = 18, top = 24, bottom = 40;
+      const plotWidth = width - left - right;
+      const plotHeight = height - top - bottom;
+      const laneHeight = plotHeight / stations.length;
+      const seconds = Number(document.getElementById("window").value);
+      const end = Date.now();
+      const start = end - seconds * 1000;
+
+      context.font = "11px Arial";
+      stations.forEach((station, lane) => {
+        const y = top + lane * laneHeight;
+        context.strokeStyle = "#293537";
+        context.lineWidth = 1;
+        context.beginPath(); context.moveTo(left, y + laneHeight); context.lineTo(width - right, y + laneHeight); context.stroke();
+        context.fillStyle = colors[station];
+        context.fillText(station, 8, y + 18);
+        context.fillStyle = "#73817e";
+        context.fillText("amplitude", 8, y + 34);
+        const points = records.filter(row => row.station === station && Date.parse(row.event_time_utc) >= start);
+        context.strokeStyle = colors[station];
+        context.lineWidth = 1.5;
+        context.beginPath();
+        points.forEach((row, index) => {
+          const x = left + ((Date.parse(row.event_time_utc) - start) / (seconds * 1000)) * plotWidth;
+          const amplitude = Math.max(0, Math.min(1, Number(row.signal_amplitude)));
+          const py = y + laneHeight - 12 - amplitude * (laneHeight - 32);
+          if (index === 0) context.moveTo(x, py); else context.lineTo(x, py);
+          context.fillStyle = colors[station];
+          context.globalAlpha = .25 + amplitude * .75;
+          context.beginPath(); context.arc(x, py, 2 + amplitude * 4, 0, Math.PI * 2); context.fill();
+          context.globalAlpha = 1;
+        });
+        if (points.length > 1) context.stroke();
+      });
+      context.fillStyle = "#73817e";
+      context.fillText(`${seconds < 3600 ? seconds / 60 + " min" : "1 h"}  |  agora`, left, height - 12);
+    }
+
+    function updateReadout() {
+      const readout = document.getElementById("readout");
+      readout.innerHTML = stations.map(station => {
+        const rows = records.filter(row => row.station === station);
+        const latest = rows[rows.length - 1];
+        return `<article><div class="station" style="color:${colors[station]}">${station}</div><div class="value">${latest ? Number(latest.frequency_hz).toFixed(1) + " Hz" : "--"}</div><div class="meta">${latest ? "amplitude " + Number(latest.signal_amplitude).toFixed(3) : "sem evento"}</div></article>`;
+      }).join("");
+    }
+
+    async function loadData() {
+      try {
+        const response = await fetch("orquestra_sismo_events.csv?" + Date.now());
+        if (!response.ok) throw new Error("CSV indisponível");
+        records = parseCsv(await response.text()).sort((a, b) => Date.parse(a.event_time_utc) - Date.parse(b.event_time_utc));
+        document.getElementById("connection").textContent = "Registo ligado";
+        document.getElementById("updated").textContent = `Última leitura: ${new Date().toLocaleTimeString()}`;
+        updateReadout(); draw();
+      } catch (error) {
+        document.getElementById("connection").textContent = "A aguardar dados";
+        document.getElementById("updated").textContent = error.message;
+        updateReadout(); draw();
+      }
+    }
+
+    document.getElementById("refresh").addEventListener("click", loadData);
+    document.getElementById("window").addEventListener("change", draw);
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas(); loadData(); setInterval(loadData, 5000);
+  </script>
+</body>
+</html>

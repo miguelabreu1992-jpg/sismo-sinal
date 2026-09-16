@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+sismo_sound_events.csv
+orquestra_sismo_events.csv
+notable_events.csv
