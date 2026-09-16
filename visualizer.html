@@ -68,7 +68,7 @@
     <section class="chart-shell"><canvas id="chart" aria-label="Série temporal das quatro estações sísmicas"></canvas><div id="readout" class="readout"></div></section>
   </main>
   <script>
-    const stations = ["ANMO", "COLA", "HRV", "RCBR", "LCO", "BOCO", "KONO", "KEV", "ANTO", "MAJO", "MAKZ", "TATO", "TSUM", "LSZ", "MACI", "CTAO", "SNZO", "NWAO", "CASY", "PMSA", "SBA"];
+    const stations = [];
     const continents = ["America do Norte", "America do Sul", "Europa", "Asia", "Africa", "Oceania", "Antartida"];
     const colors = { ANMO: "#7fe4d2", COLA: "#f4a261", KONO: "#ef7c91", MAJO: "#e8d36b" };
     const continentColors = ["#8dd3c7", "#fb8072", "#bebada", "#80b1d3", "#fdb462", "#b3de69", "#fccde5"];
@@ -165,10 +165,10 @@
 
     function updateReadout() {
       const readout = document.getElementById("readout");
-      readout.innerHTML = stations.map(station => {
-        const rows = records.filter(row => row.station === station);
-        const latest = rows[rows.length - 1];
-        return `<article><div class="station" style="color:${colors[station]}">${station}</div><div class="value">${latest ? Number(latest.frequency_hz).toFixed(1) + " Hz" : "--"}</div><div class="meta">${latest ? "amplitude " + Number(latest.signal_amplitude).toFixed(3) : "sem evento"}</div></article>`;
+      readout.innerHTML = continents.map((continent, index) => {
+        const waveform = waveforms["continent:" + continent];
+        const sampleCount = waveform ? waveform.samples.length : 0;
+        return `<article><div class="station" style="color:${continentColors[index]}">${continent}</div><div class="value">${waveform ? "ativo" : "--"}</div><div class="meta">${waveform ? sampleCount + " amostras somadas" : "sem sinal"}</div></article>`;
       }).join("");
     }
 
