@@ -38,7 +38,7 @@
     .dot { display: inline-block; width: 9px; height: 9px; margin: 0 5px 0 12px; border-radius: 50%; background: var(--cyan); }
     .dot:first-child { margin-left: 0; }
     .chart-shell { margin: 22px 0 40px; padding: 16px; background: rgba(17, 27, 29, .9); border: 1px solid var(--line); }
-    canvas { display: block; width: 100%; height: 540px; }
+    canvas { display: block; width: 100%; height: 980px; }
     .readout { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-top: 16px; background: var(--line); }
     .readout article { min-height: 90px; padding: 14px; background: var(--panel); }
     .station { font: 12px Arial, sans-serif; color: var(--muted); letter-spacing: 1px; }
@@ -48,7 +48,7 @@
       header { display: block; }
       .status { margin-top: 14px; text-align: left; }
       .legend { width: 100%; margin-left: 0; }
-      canvas { height: 620px; }
+      canvas { height: 1280px; }
       .readout { grid-template-columns: repeat(2, 1fr); }
     }
   </style>
@@ -68,8 +68,10 @@
     <section class="chart-shell"><canvas id="chart" aria-label="Série temporal das quatro estações sísmicas"></canvas><div id="readout" class="readout"></div></section>
   </main>
   <script>
-    const stations = ["ANMO", "COLA", "KONO", "MAJO"];
+    const stations = ["ANMO", "COLA", "HRV", "RCBR", "LCO", "BOCO", "KONO", "KEV", "ANTO", "MAJO", "MAKZ", "TATO", "TSUM", "LSZ", "MACI", "CTAO", "SNZO", "NWAO", "CASY", "PMSA", "SBA"];
+    const continents = ["America do Norte", "America do Sul", "Europa", "Asia", "Africa", "Oceania", "Antartida"];
     const colors = { ANMO: "#7fe4d2", COLA: "#f4a261", KONO: "#ef7c91", MAJO: "#e8d36b" };
+    const continentColors = ["#8dd3c7", "#fb8072", "#bebada", "#80b1d3", "#fdb462", "#b3de69", "#fccde5"];
     let records = [];
     let waveforms = {};
     const canvas = document.getElementById("chart");
@@ -103,26 +105,33 @@
       const left = 62, right = 18, top = 24, bottom = 40;
       const plotWidth = width - left - right;
       const plotHeight = height - top - bottom;
-      const laneHeight = plotHeight / stations.length;
+      const lanes = stations.map(station => ({ name: station, type: "station" })).concat(continents.map(continent => ({ name: continent, type: "continent" })));
+      const laneHeight = plotHeight / lanes.length;
       const seconds = Number(document.getElementById("window").value);
       const end = Date.now();
       const start = end - seconds * 1000;
 
       context.font = "11px Arial";
-      stations.forEach((station, lane) => {
+      lanes.forEach((laneInfo, lane) => {
+        const station = laneInfo.name;
+        const isContinent = laneInfo.type === "continent";
         const y = top + lane * laneHeight;
         context.strokeStyle = "#293537";
         context.lineWidth = 1;
         context.beginPath(); context.moveTo(left, y + laneHeight); context.lineTo(width - right, y + laneHeight); context.stroke();
-        context.fillStyle = colors[station];
-        context.fillText(station, 8, y + 18);
+        const color = isContinent ? continentColors[continents.indexOf(station)] : (colors[station] || "#9da39e");
+        context.fillStyle = color;
+        context.fillText(isContinent ? "SUMA " + station : station, 8, y + 18);
         context.fillStyle = "#73817e";
-        context.fillText("waveform", 8, y + 34);
-        const waveform = waveforms[station];
+        context.fillText(isContinent ? "sinal somado" : "waveform", 8, y + 34);
+        context.fillText("+1", width - right - 18, y + 12);
+        context.fillText("0", width - right - 12, y + laneHeight / 2 + 4);
+        context.fillText("-1", width - right - 18, y + laneHeight - 4);
+        const waveform = waveforms[isContinent ? "continent:" + station : station];
         if (waveform && waveform.samples.length > 1) {
           const center = y + laneHeight / 2;
           const waveScale = (laneHeight - 34) / 2;
-          context.strokeStyle = colors[station];
+          context.strokeStyle = color;
           context.globalAlpha = .7;
           context.lineWidth = 1.2;
           context.beginPath();
@@ -136,15 +145,15 @@
           context.strokeStyle = "#293537";
           context.beginPath(); context.moveTo(left, center); context.lineTo(width - right, center); context.stroke();
         }
-        const points = records.filter(row => row.station === station && Date.parse(row.event_time_utc) >= start);
-        context.strokeStyle = colors[station];
+        const points = isContinent ? [] : records.filter(row => row.station === station && Date.parse(row.event_time_utc) >= start);
+        context.strokeStyle = color;
         context.lineWidth = 1.5;
         context.beginPath();
         points.forEach((row) => {
           const x = left + ((Date.parse(row.event_time_utc) - start) / (seconds * 1000)) * plotWidth;
           const amplitude = Math.max(0, Math.min(1, Number(row.signal_amplitude)));
           const py = y + laneHeight / 2 - amplitude * (laneHeight - 34) / 2;
-          context.fillStyle = colors[station];
+          context.fillStyle = color;
           context.globalAlpha = .25 + amplitude * .75;
           context.beginPath(); context.arc(x, py, 2 + amplitude * 4, 0, Math.PI * 2); context.fill();
           context.globalAlpha = 1;

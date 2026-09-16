@@ -1,9 +1,9 @@
-"""Orquestra de quatro estacoes sismicas, atualizada a cada 15 segundos."""
+"""Orquestra continental de 21 estacoes, atualizada a cada 15 segundos."""
 
 import csv
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
-import tempfile
 import time
 
 import numpy as np
@@ -20,41 +20,56 @@ OSC_PORT = 57120
 EVENT_LOG = "orquestra_sismo_events.csv"
 WAVEFORM_LOG = "orquestra_sismo_waveforms.json"
 
-# Cada estacao ocupa uma regiao diferente para funcionar como uma voz.
+# As estacoes foram escolhidas por atividade RMS recente, mantendo distancia
+# geografica entre elas dentro de cada continente.
 ESTACOES = [
-    {"nome": "ANMO", "network": "IU", "station": "ANMO", "channel": "BHZ", "min_note": 36, "max_note": 52},
-    {"nome": "COLA", "network": "IU", "station": "COLA", "channel": "BHZ", "min_note": 48, "max_note": 64},
-    {"nome": "KONO", "network": "IU", "station": "KONO", "channel": "BHZ", "min_note": 60, "max_note": 76},
-    {"nome": "MAJO", "network": "IU", "station": "MAJO", "channel": "BHZ", "min_note": 72, "max_note": 88},
+    {"nome": "ANMO", "continente": "America do Norte", "network": "IU", "station": "ANMO", "channel": "BHZ", "min_note": 36, "max_note": 44},
+    {"nome": "COLA", "continente": "America do Norte", "network": "IU", "station": "COLA", "channel": "BHZ", "min_note": 45, "max_note": 52},
+    {"nome": "HRV", "continente": "America do Norte", "network": "IU", "station": "HRV", "channel": "BHZ", "min_note": 53, "max_note": 60},
+    {"nome": "RCBR", "continente": "America do Sul", "network": "IU", "station": "RCBR", "channel": "BHZ", "min_note": 41, "max_note": 49},
+    {"nome": "LCO", "continente": "America do Sul", "network": "IU", "station": "LCO", "channel": "BHZ", "min_note": 50, "max_note": 57},
+    {"nome": "BOCO", "continente": "America do Sul", "network": "IU", "station": "BOCO", "channel": "BHZ", "min_note": 58, "max_note": 65},
+    {"nome": "KONO", "continente": "Europa", "network": "IU", "station": "KONO", "channel": "BHZ", "min_note": 48, "max_note": 55},
+    {"nome": "KEV", "continente": "Europa", "network": "IU", "station": "KEV", "channel": "BHZ", "min_note": 56, "max_note": 63},
+    {"nome": "ANTO", "continente": "Europa", "network": "IU", "station": "ANTO", "channel": "BHZ", "min_note": 64, "max_note": 71},
+    {"nome": "MAJO", "continente": "Asia", "network": "IU", "station": "MAJO", "channel": "BHZ", "min_note": 56, "max_note": 64},
+    {"nome": "MAKZ", "continente": "Asia", "network": "IU", "station": "MAKZ", "channel": "BHZ", "min_note": 65, "max_note": 73},
+    {"nome": "TATO", "continente": "Asia", "network": "IU", "station": "TATO", "channel": "BHZ", "min_note": 74, "max_note": 82},
+    {"nome": "TSUM", "continente": "Africa", "network": "IU", "station": "TSUM", "channel": "BHZ", "min_note": 42, "max_note": 50},
+    {"nome": "LSZ", "continente": "Africa", "network": "IU", "station": "LSZ", "channel": "BHZ", "min_note": 51, "max_note": 59},
+    {"nome": "MACI", "continente": "Africa", "network": "IU", "station": "MACI", "channel": "BHZ", "min_note": 60, "max_note": 68},
+    {"nome": "CTAO", "continente": "Oceania", "network": "IU", "station": "CTAO", "channel": "BHZ", "min_note": 48, "max_note": 56},
+    {"nome": "SNZO", "continente": "Oceania", "network": "IU", "station": "SNZO", "channel": "BHZ", "min_note": 57, "max_note": 65},
+    {"nome": "NWAO", "continente": "Oceania", "network": "IU", "station": "NWAO", "channel": "BHZ", "min_note": 66, "max_note": 74},
+    {"nome": "CASY", "continente": "Antartida", "network": "IU", "station": "CASY", "channel": "BHZ", "min_note": 44, "max_note": 52},
+    {"nome": "PMSA", "continente": "Antartida", "network": "IU", "station": "PMSA", "channel": "BHZ", "min_note": 53, "max_note": 61},
+    {"nome": "SBA", "continente": "Antartida", "network": "IU", "station": "SBA", "channel": "BHZ", "min_note": 62, "max_note": 70},
 ]
+CONTINENTES = ["America do Norte", "America do Sul", "Europa", "Asia", "Africa", "Oceania", "Antartida"]
 
 client = Client("EARTHSCOPE")
 osc_client = SimpleUDPClient(OSC_IP, OSC_PORT)
 last_peak_by_station = {station["nome"]: -999.0 for station in ESTACOES}
 
 
-def guardar_forma_onda(station_name, trace, data):
-    """Atualiza o ultimo bloco de onda de cada estacao para o visualizador."""
+def forma_onda(trace, data):
+    """Cria uma forma de onda normalizada com escala fixa entre estacoes."""
     sample_count = min(len(data), 600)
     indices = np.linspace(0, len(data) - 1, sample_count, dtype=int)
     maximum = max(np.max(np.abs(data)), np.finfo(float).eps)
     samples = (data[indices] / maximum).astype(float).tolist()
-    waveform = {}
-    if os.path.exists(WAVEFORM_LOG):
-        try:
-            with open(WAVEFORM_LOG, "r", encoding="utf-8") as waveform_file:
-                waveform = json.load(waveform_file)
-        except (json.JSONDecodeError, OSError):
-            waveform = {}
-    waveform[station_name] = {
+    return {
         "start_time_utc": trace.stats.starttime.isoformat(),
         "end_time_utc": trace.stats.endtime.isoformat(),
         "sample_rate": float(trace.stats.sampling_rate),
         "samples": samples,
     }
+
+
+def guardar_formas_onda(waveforms):
     temporary_path = f"{WAVEFORM_LOG}.tmp"
     with open(temporary_path, "w", encoding="utf-8") as waveform_file:
-        json.dump(waveform, waveform_file, separators=(",", ":"))
+        json.dump(waveforms, waveform_file, separators=(",", ":"))
     os.replace(temporary_path, WAVEFORM_LOG)
 
 
@@ -109,7 +124,6 @@ def processar_estacao(station, start, end):
         if len(data) < 3:
             continue
         centered_data = data - np.mean(data)
-        guardar_forma_onda(station["nome"], trace, centered_data)
         max_abs = max(np.max(np.abs(centered_data)), np.finfo(float).eps)
         normalized = np.abs(centered_data / max_abs)
         sample_rate = trace.stats.sampling_rate
@@ -119,6 +133,7 @@ def processar_estacao(station, start, end):
             if is_local_max and normalized[index] > THRESHOLD:
                 event_time = trace.stats.starttime + index / sample_rate
                 enviar_pico(station, event_time, float(normalized[index]))
+        return forma_onda(trace, centered_data), centered_data
 
 
 def main():
@@ -130,11 +145,32 @@ def main():
     while True:
         end = UTCDateTime.now()
         start = end - JANELA_SEGUNDOS
-        for station in ESTACOES:
-            try:
-                processar_estacao(station, start, end)
-            except Exception as exception:
-                print(f"{station['nome']}: falha ao obter dados ({exception})")
+        waveforms = {}
+        grouped_samples = {continent: [] for continent in CONTINENTES}
+        with ThreadPoolExecutor(max_workers=7) as executor:
+            futures = {
+                executor.submit(processar_estacao, station, start, end): station
+                for station in ESTACOES
+            }
+            for future in as_completed(futures):
+                station = futures[future]
+                try:
+                    result = future.result()
+                    if result:
+                        waveform, centered_data = result
+                        waveforms[station["nome"]] = waveform
+                        grouped_samples[station["continente"]].append(centered_data)
+                except Exception as exception:
+                    print(f"{station['nome']}: falha ao obter dados ({exception})")
+        for continent, station_samples in grouped_samples.items():
+            if station_samples:
+                shortest = min(len(samples) for samples in station_samples)
+                summed = np.sum([samples[:shortest] for samples in station_samples], axis=0)
+                aggregate_trace = type("AggregateTrace", (), {"stats": type("Stats", (), {
+                    "starttime": start, "endtime": end, "sampling_rate": 1 / (float(end - start) / shortest),
+                })()})()
+                waveforms[f"continent:{continent}"] = forma_onda(aggregate_trace, summed)
+        guardar_formas_onda(waveforms)
         elapsed = float(UTCDateTime.now() - end)
         time.sleep(max(0, INTERVALO_ENTRE_PEDIDOS - elapsed))
 
