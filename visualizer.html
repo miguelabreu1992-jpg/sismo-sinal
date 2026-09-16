@@ -71,6 +71,7 @@
     const stations = ["ANMO", "COLA", "KONO", "MAJO"];
     const colors = { ANMO: "#7fe4d2", COLA: "#f4a261", KONO: "#ef7c91", MAJO: "#e8d36b" };
     let records = [];
+    let waveforms = {};
     const canvas = document.getElementById("chart");
     const context = canvas.getContext("2d");
 
@@ -116,22 +117,38 @@
         context.fillStyle = colors[station];
         context.fillText(station, 8, y + 18);
         context.fillStyle = "#73817e";
-        context.fillText("amplitude", 8, y + 34);
+        context.fillText("waveform", 8, y + 34);
+        const waveform = waveforms[station];
+        if (waveform && waveform.samples.length > 1) {
+          const center = y + laneHeight / 2;
+          const waveScale = (laneHeight - 34) / 2;
+          context.strokeStyle = colors[station];
+          context.globalAlpha = .7;
+          context.lineWidth = 1.2;
+          context.beginPath();
+          waveform.samples.forEach((sample, index) => {
+            const x = left + (index / (waveform.samples.length - 1)) * plotWidth;
+            const py = center - Number(sample) * waveScale;
+            if (index === 0) context.moveTo(x, py); else context.lineTo(x, py);
+          });
+          context.stroke();
+          context.globalAlpha = 1;
+          context.strokeStyle = "#293537";
+          context.beginPath(); context.moveTo(left, center); context.lineTo(width - right, center); context.stroke();
+        }
         const points = records.filter(row => row.station === station && Date.parse(row.event_time_utc) >= start);
         context.strokeStyle = colors[station];
         context.lineWidth = 1.5;
         context.beginPath();
-        points.forEach((row, index) => {
+        points.forEach((row) => {
           const x = left + ((Date.parse(row.event_time_utc) - start) / (seconds * 1000)) * plotWidth;
           const amplitude = Math.max(0, Math.min(1, Number(row.signal_amplitude)));
-          const py = y + laneHeight - 12 - amplitude * (laneHeight - 32);
-          if (index === 0) context.moveTo(x, py); else context.lineTo(x, py);
+          const py = y + laneHeight / 2 - amplitude * (laneHeight - 34) / 2;
           context.fillStyle = colors[station];
           context.globalAlpha = .25 + amplitude * .75;
           context.beginPath(); context.arc(x, py, 2 + amplitude * 4, 0, Math.PI * 2); context.fill();
           context.globalAlpha = 1;
         });
-        if (points.length > 1) context.stroke();
       });
       context.fillStyle = "#73817e";
       context.fillText(`${seconds < 3600 ? seconds / 60 + " min" : "1 h"}  |  agora`, left, height - 12);
@@ -151,6 +168,8 @@
         const response = await fetch("orquestra_sismo_events.csv?" + Date.now());
         if (!response.ok) throw new Error("CSV indisponível");
         records = parseCsv(await response.text()).sort((a, b) => Date.parse(a.event_time_utc) - Date.parse(b.event_time_utc));
+        const waveformResponse = await fetch("orquestra_sismo_waveforms.json?" + Date.now());
+        if (waveformResponse.ok) waveforms = await waveformResponse.json();
         document.getElementById("connection").textContent = "Registo ligado";
         document.getElementById("updated").textContent = `Última leitura: ${new Date().toLocaleTimeString()}`;
         updateReadout(); draw();

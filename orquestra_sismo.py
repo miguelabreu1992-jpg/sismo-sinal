@@ -1,7 +1,9 @@
 """Orquestra de quatro estacoes sismicas, atualizada a cada 15 segundos."""
 
 import csv
+import json
 import os
+import tempfile
 import time
 
 import numpy as np
@@ -16,6 +18,7 @@ MIN_GAP_SECONDS = 1.5
 OSC_IP = "127.0.0.1"
 OSC_PORT = 57120
 EVENT_LOG = "orquestra_sismo_events.csv"
+WAVEFORM_LOG = "orquestra_sismo_waveforms.json"
 
 # Cada estacao ocupa uma regiao diferente para funcionar como uma voz.
 ESTACOES = [
@@ -28,6 +31,31 @@ ESTACOES = [
 client = Client("EARTHSCOPE")
 osc_client = SimpleUDPClient(OSC_IP, OSC_PORT)
 last_peak_by_station = {station["nome"]: -999.0 for station in ESTACOES}
+
+
+def guardar_forma_onda(station_name, trace, data):
+    """Atualiza o ultimo bloco de onda de cada estacao para o visualizador."""
+    sample_count = min(len(data), 600)
+    indices = np.linspace(0, len(data) - 1, sample_count, dtype=int)
+    maximum = max(np.max(np.abs(data)), np.finfo(float).eps)
+    samples = (data[indices] / maximum).astype(float).tolist()
+    waveform = {}
+    if os.path.exists(WAVEFORM_LOG):
+        try:
+            with open(WAVEFORM_LOG, "r", encoding="utf-8") as waveform_file:
+                waveform = json.load(waveform_file)
+        except (json.JSONDecodeError, OSError):
+            waveform = {}
+    waveform[station_name] = {
+        "start_time_utc": trace.stats.starttime.isoformat(),
+        "end_time_utc": trace.stats.endtime.isoformat(),
+        "sample_rate": float(trace.stats.sampling_rate),
+        "samples": samples,
+    }
+    temporary_path = f"{WAVEFORM_LOG}.tmp"
+    with open(temporary_path, "w", encoding="utf-8") as waveform_file:
+        json.dump(waveform, waveform_file, separators=(",", ":"))
+    os.replace(temporary_path, WAVEFORM_LOG)
 
 
 def midi_to_freq(note):
@@ -80,8 +108,10 @@ def processar_estacao(station, start, end):
         data = trace.data.astype(float)
         if len(data) < 3:
             continue
-        max_abs = max(np.max(np.abs(data)), np.finfo(float).eps)
-        normalized = np.abs(data / max_abs)
+        centered_data = data - np.mean(data)
+        guardar_forma_onda(station["nome"], trace, centered_data)
+        max_abs = max(np.max(np.abs(centered_data)), np.finfo(float).eps)
+        normalized = np.abs(centered_data / max_abs)
         sample_rate = trace.stats.sampling_rate
 
         for index in range(1, len(normalized) - 1):
