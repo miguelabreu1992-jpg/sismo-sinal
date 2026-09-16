@@ -4,12 +4,18 @@ import csv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
+import threading
 import time
 
 import numpy as np
 from obspy import UTCDateTime
 from obspy.clients.fdsn import Client
 from pythonosc.udp_client import SimpleUDPClient
+
+try:
+    import mido
+except ImportError:
+    mido = None
 
 INTERVALO_ENTRE_PEDIDOS = 15
 JANELA_SEGUNDOS = 15
@@ -19,6 +25,8 @@ OSC_IP = "127.0.0.1"
 OSC_PORT = 57120
 EVENT_LOG = "orquestra_sismo_events.csv"
 WAVEFORM_LOG = "orquestra_sismo_waveforms.json"
+MIDI_PORT_NAME = "Sismo Orchestra MIDI"
+MIDI_NOTE_DURATION = 0.35
 
 # As estacoes foram escolhidas por atividade RMS recente, mantendo distancia
 # geografica entre elas dentro de cada continente.
@@ -49,6 +57,8 @@ CONTINENTES = ["America do Norte", "America do Sul", "Europa", "Asia", "Africa",
 
 client = Client("EARTHSCOPE")
 osc_client = SimpleUDPClient(OSC_IP, OSC_PORT)
+midi_out = None
+midi_lock = threading.Lock()
 last_peak_by_station = {station["nome"]: -999.0 for station in ESTACOES}
 
 
@@ -75,6 +85,42 @@ def guardar_formas_onda(waveforms):
 
 def midi_to_freq(note):
     return 440.0 * (2 ** ((note - 69) / 12.0))
+
+
+def abrir_midi():
+    """Abre a porta virtual se o loopMIDI estiver instalado e ativo."""
+    global midi_out
+    if mido is None:
+        print("MIDI desativado: instale mido e python-rtmidi.")
+        return
+    try:
+        ports = mido.get_output_names()
+    except Exception as exception:
+        print(f"MIDI desativado: backend MIDI indisponivel ({exception}).")
+        return
+    matching_port = next((port for port in ports if MIDI_PORT_NAME.lower() in port.lower()), None)
+    if matching_port is None:
+        print(f"MIDI desativado: crie a porta '{MIDI_PORT_NAME}' no loopMIDI.")
+        print(f"Portas MIDI encontradas: {ports or 'nenhuma'}")
+        return
+    midi_out = mido.open_output(matching_port)
+    print(f"MIDI ativo: {matching_port}")
+
+
+def enviar_midi(note, velocity):
+    if midi_out is None:
+        return
+    with midi_lock:
+        midi_out.send(mido.Message("note_on", note=note, velocity=velocity))
+
+    def desligar_nota():
+        with midi_lock:
+            if midi_out is not None:
+                midi_out.send(mido.Message("note_off", note=note, velocity=0))
+
+    note_timer = threading.Timer(MIDI_NOTE_DURATION, desligar_nota)
+    note_timer.daemon = True
+    note_timer.start()
 
 
 def registar_evento(event_time, station_name, amplitude_signal, midi_note, freq, amp):
@@ -106,8 +152,10 @@ def enviar_pico(station, event_time, amplitude_signal):
     midi_note = round(min(max(note, station["min_note"]), station["max_note"]))
     freq = midi_to_freq(midi_note)
     amp = min(max(amplitude_signal, 0.1), 0.9)
+    velocity = round(1 + amp * 126)
 
     osc_client.send_message("/sismo", [float(freq), float(amp)])
+    enviar_midi(midi_note, velocity)
     registar_evento(event_time, station_name, amplitude_signal, midi_note, freq, amp)
     last_peak_by_station[station_name] = event_seconds
     print(f"{station_name}: pico {event_time} | nota {midi_note} | {freq:.1f} Hz")
@@ -139,6 +187,7 @@ def processar_estacao(station, start, end):
 def main():
     names = ", ".join(station["nome"] for station in ESTACOES)
     print(f"Orquestra ativa: {names}")
+    abrir_midi()
     print(f"A atualizar a cada {INTERVALO_ENTRE_PEDIDOS}s com janelas de {JANELA_SEGUNDOS}s.")
     print("Ctrl+C para parar.\n")
 
