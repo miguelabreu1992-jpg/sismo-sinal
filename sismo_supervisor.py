@@ -82,8 +82,9 @@ def main():
         sclang, "-D", str(ROOT / "live_sismo_autostart.scd"),
     ]))
 
+    print("Escolhe a saida na janela do SuperCollider e clica em 'Iniciar audio'.", flush=True)
     print("A aguardar o arranque do servidor de audio...", flush=True)
-    time.sleep(8)
+    time.sleep(15)
     if shutting_down:
         return
 
