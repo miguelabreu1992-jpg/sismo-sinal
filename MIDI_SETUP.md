@@ -11,6 +11,9 @@ A orquestra envia OSC para o SuperCollider e, opcionalmente, MIDI para uma porta
 
 3. Inicia `start_visualizer.bat`.
 
+Nao precisas de instalar `python-rtmidi`: no Windows, o projeto usa diretamente
+a API MIDI nativa `winmm.dll`.
+
 Se a porta existir, a consola mostra:
 
 ```text

@@ -1,6 +1,7 @@
 """Orquestra continental de 21 estacoes, atualizada a cada 15 segundos."""
 
 import csv
+import ctypes
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
@@ -11,11 +12,6 @@ import numpy as np
 from obspy import UTCDateTime
 from obspy.clients.fdsn import Client
 from pythonosc.udp_client import SimpleUDPClient
-
-try:
-    import mido
-except ImportError:
-    mido = None
 
 INTERVALO_ENTRE_PEDIDOS = 15
 JANELA_SEGUNDOS = 15
@@ -62,6 +58,41 @@ midi_lock = threading.Lock()
 last_peak_by_station = {station["nome"]: -999.0 for station in ESTACOES}
 
 
+class WindowsMidiOutput:
+    """Envia mensagens MIDI usando a API nativa do Windows."""
+
+    def __init__(self, device_id):
+        self.winmm = ctypes.WinDLL("winmm.dll")
+        handle = ctypes.c_void_p()
+        result = self.winmm.midiOutOpen(ctypes.byref(handle), device_id, 0, 0, 0)
+        if result != 0:
+            raise OSError(f"midiOutOpen falhou com codigo {result}")
+        self.handle = handle
+
+    def send(self, status, note, velocity):
+        message = status | note << 8 | velocity << 16
+        result = self.winmm.midiOutShortMsg(self.handle, message)
+        if result != 0:
+            raise OSError(f"midiOutShortMsg falhou com codigo {result}")
+
+    def close(self):
+        self.winmm.midiOutClose(self.handle)
+
+
+class MidiOutCaps(ctypes.Structure):
+    _fields_ = [
+        ("wMid", ctypes.c_ushort),
+        ("wPid", ctypes.c_ushort),
+        ("vDriverVersion", ctypes.c_uint),
+        ("szPname", ctypes.c_wchar * 32),
+        ("wTechnology", ctypes.c_ushort),
+        ("wVoices", ctypes.c_ushort),
+        ("wNotes", ctypes.c_ushort),
+        ("wChannelMask", ctypes.c_ushort),
+        ("dwSupport", ctypes.c_uint),
+    ]
+
+
 def forma_onda(trace, data):
     """Cria uma forma de onda normalizada com escala fixa entre estacoes."""
     sample_count = min(len(data), 600)
@@ -90,33 +121,42 @@ def midi_to_freq(note):
 def abrir_midi():
     """Abre a porta virtual se o loopMIDI estiver instalado e ativo."""
     global midi_out
-    if mido is None:
-        print("MIDI desativado: instale mido e python-rtmidi.")
+    if os.name != "nt":
+        print("MIDI desativado: a porta nativa esta implementada para Windows.")
         return
     try:
-        ports = mido.get_output_names()
+        winmm = ctypes.WinDLL("winmm.dll")
+        device_count = winmm.midiOutGetNumDevs()
+        matching_device = None
+        available_ports = []
+        for device_id in range(device_count):
+            capabilities = MidiOutCaps()
+            result = winmm.midiOutGetDevCapsW(device_id, ctypes.byref(capabilities), ctypes.sizeof(capabilities))
+            if result == 0:
+                port_name = capabilities.szPname
+                available_ports.append(port_name)
+                if MIDI_PORT_NAME.lower() in port_name.lower():
+                    matching_device = device_id
+        if matching_device is None:
+            print(f"MIDI desativado: crie a porta '{MIDI_PORT_NAME}' no loopMIDI.")
+            print(f"Portas MIDI encontradas: {available_ports or 'nenhuma'}")
+            return
+        midi_out = WindowsMidiOutput(matching_device)
+        print(f"MIDI ativo: {available_ports[matching_device]}")
     except Exception as exception:
-        print(f"MIDI desativado: backend MIDI indisponivel ({exception}).")
-        return
-    matching_port = next((port for port in ports if MIDI_PORT_NAME.lower() in port.lower()), None)
-    if matching_port is None:
-        print(f"MIDI desativado: crie a porta '{MIDI_PORT_NAME}' no loopMIDI.")
-        print(f"Portas MIDI encontradas: {ports or 'nenhuma'}")
-        return
-    midi_out = mido.open_output(matching_port)
-    print(f"MIDI ativo: {matching_port}")
+        print(f"MIDI desativado: nao foi possivel abrir a API Windows ({exception}).")
 
 
 def enviar_midi(note, velocity):
     if midi_out is None:
         return
     with midi_lock:
-        midi_out.send(mido.Message("note_on", note=note, velocity=velocity))
+        midi_out.send(0x90, note, velocity)
 
     def desligar_nota():
         with midi_lock:
             if midi_out is not None:
-                midi_out.send(mido.Message("note_off", note=note, velocity=0))
+                midi_out.send(0x80, note, 0)
 
     note_timer = threading.Timer(MIDI_NOTE_DURATION, desligar_nota)
     note_timer.daemon = True

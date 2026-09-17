@@ -16,7 +16,8 @@ if not defined SCLANG if exist "%ProgramFiles%\SuperCollider-3.13.0\sclang.exe" 
 if not defined SCLANG if exist "%ProgramFiles%\SuperCollider-3.12.2\sclang.exe" set "SCLANG=%ProgramFiles%\SuperCollider-3.12.2\sclang.exe"
 if not defined SCLANG if exist "%ProgramFiles(x86)%\SuperCollider\sclang.exe" set "SCLANG=%ProgramFiles(x86)%\SuperCollider\sclang.exe"
 
-if exist "%LocalAppData%\Python\pythoncore-3.14-64\python.exe" set "PYTHON=%LocalAppData%\Python\pythoncore-3.14-64\python.exe"
+if exist "%ROOT%.venv\Scripts\python.exe" set "PYTHON=%ROOT%.venv\Scripts\python.exe"
+if not defined PYTHON if exist "%LocalAppData%\Python\pythoncore-3.14-64\python.exe" set "PYTHON=%LocalAppData%\Python\pythoncore-3.14-64\python.exe"
 if not defined PYTHON (
     where py.exe >nul 2>&1
     if not errorlevel 1 set "PYTHON=py.exe"
