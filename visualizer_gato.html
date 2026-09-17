@@ -15,8 +15,7 @@
     .status { color: var(--muted); font: 12px Arial, sans-serif; text-align: right; }
     .status strong { display: block; color: var(--accent); margin-bottom: 4px; }
     .stage { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; background: #090909; border: 1px solid #60493d; box-shadow: 0 20px 60px #0008; }
-    video { width: 100%; height: 100%; display: block; object-fit: contain; }
-    canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    video { width: 100%; height: 100%; display: block; object-fit: cover; }
     .controls { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding: 14px 0; border-bottom: 1px solid #4c4038; }
     label, button { font: 12px Arial, sans-serif; }
     button { border: 1px solid #896d52; color: var(--ink); background: #34251e; padding: 9px 12px; border-radius: 4px; cursor: pointer; }
@@ -34,78 +33,28 @@
     </header>
     <section class="stage" id="stage">
       <video id="catVideo" autoplay loop muted playsinline></video>
-      <canvas id="eyes"></canvas>
     </section>
     <div class="controls">
-      <input id="videoPicker" type="file" accept="video/*">
-      <button id="calibrate" type="button">Calibrar olhos</button>
       <button id="pause" type="button">Pausa</button>
-      <span class="hint" id="hint">Se o vídeo não aparecer, escolhe-o aqui. No modo calibrar, clica no centro de cada olho.</span>
+      <span class="hint" id="hint">O vídeo pausa brevemente quando há atividade sísmica.</span>
     </div>
   </main>
   <script>
     const video = document.getElementById("catVideo");
-    const canvas = document.getElementById("eyes");
-    const ctx = canvas.getContext("2d");
     const activityLabel = document.getElementById("activity");
     const updatedLabel = document.getElementById("updated");
     const defaultVideo = "WhatsApp Video 2026-09-17 at 21.19.58.mp4";
-    let eyePoints = [{ x: .42, y: .37 }, { x: .58, y: .37 }];
-    let calibrating = false;
-    let eyeIndex = 0;
-    let frozenUntil = 0;
     let lastEventKey = "";
     let lastActivityAt = 0;
 
     video.src = defaultVideo;
     video.addEventListener("error", () => {
-      document.getElementById("hint").textContent = "Vídeo não encontrado: escolhe o ficheiro original no seletor acima.";
-    });
-    document.getElementById("videoPicker").addEventListener("change", event => {
-      const file = event.target.files[0];
-      if (file) { video.src = URL.createObjectURL(file); video.play(); }
+      document.getElementById("hint").textContent = "Não foi possível carregar o vídeo do gato.";
     });
     document.getElementById("pause").addEventListener("click", event => {
       if (video.paused) { video.play(); event.target.textContent = "Pausa"; }
       else { video.pause(); event.target.textContent = "Reproduzir"; }
     });
-    document.getElementById("calibrate").addEventListener("click", event => {
-      calibrating = !calibrating; eyeIndex = 0;
-      event.target.textContent = calibrating ? "Clique nos olhos" : "Calibrar olhos";
-      document.getElementById("hint").textContent = calibrating ? "Clica no centro do olho esquerdo e depois do direito." : "Olhos calibrados.";
-    });
-    canvas.addEventListener("click", event => {
-      if (!calibrating) return;
-      const rect = canvas.getBoundingClientRect();
-      eyePoints[eyeIndex] = { x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height };
-      eyeIndex += 1;
-      if (eyeIndex >= 2) { calibrating = false; document.getElementById("calibrate").textContent = "Calibrar olhos"; }
-    });
-
-    function resize() {
-      const ratio = devicePixelRatio || 1;
-      canvas.width = canvas.clientWidth * ratio; canvas.height = canvas.clientHeight * ratio;
-      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    }
-    function drawEyes(time) {
-      const width = canvas.clientWidth, height = canvas.clientHeight;
-      ctx.clearRect(0, 0, width, height);
-      if (calibrating) {
-        ctx.strokeStyle = "#f3b562"; ctx.lineWidth = 2;
-        eyePoints.forEach(point => { ctx.beginPath(); ctx.arc(point.x * width, point.y * height, 13, 0, Math.PI * 2); ctx.stroke(); });
-        requestAnimationFrame(drawEyes); return;
-      }
-      const isFrozen = performance.now() < frozenUntil;
-      const motion = isFrozen ? 0 : Math.sin(time / 620) * 4;
-      const blink = isFrozen ? 0 : Math.max(0, Math.sin(time / 3700)) ** 18;
-      eyePoints.forEach(point => {
-        const x = point.x * width + motion, y = point.y * height;
-        ctx.save(); ctx.translate(x, y); ctx.scale(1, Math.max(.08, 1 - blink));
-        ctx.fillStyle = "#15110f"; ctx.beginPath(); ctx.ellipse(0, 0, 8, 11, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = "#e9c77a"; ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fill(); ctx.restore();
-      });
-      requestAnimationFrame(drawEyes);
-    }
     async function pollActivity() {
       try {
         const response = await fetch("orquestra_sismo_events.csv?" + Date.now());
@@ -113,16 +62,17 @@
         const lines = (await response.text()).trim().split(/\r?\n/);
         const latest = lines[lines.length - 1] || "";
         if (latest && latest !== lastEventKey && lastEventKey) {
-          frozenUntil = performance.now() + 1800;
           lastActivityAt = Date.now();
-          activityLabel.textContent = "Atividade sísmica: olhos parados";
+          video.pause();
+          activityLabel.textContent = "Atividade sísmica: vídeo parado";
+          setTimeout(() => { if (!video.ended) video.play(); }, 1800);
         }
         lastEventKey = latest;
         if (Date.now() - lastActivityAt > 1800) activityLabel.textContent = "A aguardar atividade";
         updatedLabel.textContent = "Registo atualizado " + new Date().toLocaleTimeString();
       } catch (_) { activityLabel.textContent = "A aguardar registo"; }
     }
-    window.addEventListener("resize", resize); resize(); pollActivity(); setInterval(pollActivity, 1000); requestAnimationFrame(drawEyes);
+    pollActivity(); setInterval(pollActivity, 1000);
   </script>
 </body>
 </html>
