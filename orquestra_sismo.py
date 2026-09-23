@@ -21,6 +21,7 @@ THRESHOLD = 0.08
 MIN_GAP_SECONDS = 1.5
 OSC_IP = "127.0.0.1"
 OSC_PORT = 57120
+TOUCHDESIGNER_PORT = 57121
 EVENT_LOG = "orquestra_sismo_events.csv"
 WAVEFORM_LOG = "orquestra_sismo_waveforms.json"
 MIDI_PORT_NAME = "Sismo Orchestra MIDI"
@@ -57,6 +58,7 @@ CONTINENTES = ["America do Norte", "America do Sul", "Europa", "Asia", "Africa",
 
 client = Client("EARTHSCOPE")
 osc_client = SimpleUDPClient(OSC_IP, OSC_PORT)
+touchdesigner_client = SimpleUDPClient(OSC_IP, TOUCHDESIGNER_PORT)
 midi_out = None
 midi_lock = threading.Lock()
 last_peak_by_station = {station["nome"]: -999.0 for station in ESTACOES}
@@ -237,6 +239,7 @@ def reproduzir_eventos():
             heapq.heappop(pending_events)
 
         osc_client.send_message("/sismo", [float(freq), float(amp)])
+        touchdesigner_client.send_message("/sismo", [float(freq), float(amp)])
         enviar_midi(midi_note, round(1 + amp * 126))
         print(f"{station_name}: a tocar {midi_note} | {freq:.1f} Hz", flush=True)
 
