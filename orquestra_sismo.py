@@ -24,7 +24,7 @@ EVENT_LOG = "orquestra_sismo_events.csv"
 WAVEFORM_LOG = "orquestra_sismo_waveforms.json"
 MIDI_PORT_NAME = "Sismo Orchestra MIDI"
 MIDI_NOTE_DURATION = 0.35
-ATRASO_REPRODUCAO = 15
+BUFFER_INICIAL = 30
 
 # As estacoes foram escolhidas por atividade RMS recente, mantendo distancia
 # geografica entre elas dentro de cada continente.
@@ -61,6 +61,7 @@ last_peak_by_station = {station["nome"]: -999.0 for station in ESTACOES}
 pending_events = []
 pending_events_condition = threading.Condition()
 event_sequence = 0
+playback_offset = None
 
 
 class WindowsMidiOutput:
@@ -209,13 +210,13 @@ def agendar_pico(station, event_time, amplitude_signal):
 
 
 def reproduzir_eventos():
-    """Toca eventos no tempo original, com atraso para preservar a cronologia."""
+    """Toca eventos num relogio continuo ancorado no primeiro bloco."""
     while True:
         with pending_events_condition:
-            while not pending_events:
+            while playback_offset is None or not pending_events:
                 pending_events_condition.wait()
             event_seconds, _, freq, amp, midi_note, station_name = pending_events[0]
-            target_time = event_seconds + ATRASO_REPRODUCAO
+            target_time = event_seconds + playback_offset
             wait_time = target_time - time.time()
             if wait_time > 0:
                 pending_events_condition.wait(timeout=wait_time)
@@ -251,16 +252,23 @@ def processar_estacao(station, start, end):
 
 
 def main():
+    global playback_offset
     names = ", ".join(station["nome"] for station in ESTACOES)
     print(f"Orquestra ativa: {names}")
     abrir_midi()
     scheduler = threading.Thread(target=reproduzir_eventos, daemon=True)
     scheduler.start()
-    print(f"A recolher a cada {INTERVALO_ENTRE_PEDIDOS}s e a tocar com {ATRASO_REPRODUCAO}s de atraso.")
+    print(f"A preparar {BUFFER_INICIAL}s de buffer e a recolher a cada {INTERVALO_ENTRE_PEDIDOS}s.")
     print("Ctrl+C para parar.\n")
 
+    next_window_end = UTCDateTime.now() - BUFFER_INICIAL
+    first_window_start = next_window_end - JANELA_SEGUNDOS
+    playback_offset = time.time() + BUFFER_INICIAL - float(first_window_start)
+    with pending_events_condition:
+        pending_events_condition.notify_all()
+
     while True:
-        end = UTCDateTime.now() - ATRASO_REPRODUCAO
+        end = next_window_end
         start = end - JANELA_SEGUNDOS
         waveforms = {}
         grouped_samples = {continent: [] for continent in CONTINENTES}
@@ -288,8 +296,9 @@ def main():
                 })()})()
                 waveforms[f"continent:{continent}"] = forma_onda(aggregate_trace, summed)
         guardar_formas_onda(waveforms)
-        elapsed = float(UTCDateTime.now() - end)
-        time.sleep(max(0, INTERVALO_ENTRE_PEDIDOS - elapsed))
+        next_window_end += JANELA_SEGUNDOS
+        sleep_until = float(next_window_end) + BUFFER_INICIAL
+        time.sleep(max(0, sleep_until - time.time()))
 
 
 if __name__ == "__main__":
