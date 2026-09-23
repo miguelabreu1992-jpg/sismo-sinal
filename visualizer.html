@@ -63,6 +63,8 @@
       <button id="refresh" type="button">Atualizar agora</button>
       <label for="window">Janela</label>
       <select id="window"><option value="60">1 minuto</option><option value="300" selected>5 minutos</option><option value="900">15 minutos</option><option value="3600">1 hora</option></select>
+      <label for="threshold">Threshold <output id="thresholdValue">0.08</output></label>
+      <input id="threshold" type="range" min="0" max="1" step="0.01" value="0.08">
       <div class="legend"><span class="dot"></span>amplitude <span class="dot" style="background:var(--orange)"></span>frequência</div>
     </div>
     <section class="chart-shell"><canvas id="chart" aria-label="Série temporal das quatro estações sísmicas"></canvas><div id="readout" class="readout"></div></section>
@@ -191,6 +193,18 @@
 
     document.getElementById("refresh").addEventListener("click", loadData);
     document.getElementById("window").addEventListener("change", draw);
+    const thresholdInput = document.getElementById("threshold");
+    const thresholdValue = document.getElementById("thresholdValue");
+    thresholdInput.addEventListener("input", () => {
+      thresholdValue.value = Number(thresholdInput.value).toFixed(2);
+    });
+    thresholdInput.addEventListener("change", async () => {
+      await fetch("/api/threshold", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threshold: Number(thresholdInput.value) })
+      });
+    });
     window.addEventListener("resize", resizeCanvas);
     resizeCanvas(); loadData(); setInterval(loadData, 5000);
   </script>

@@ -95,7 +95,7 @@ def main():
 
     print("A iniciar o servidor do visualizador...", flush=True)
     children.append(subprocess.Popen([
-        sys.executable, "-m", "http.server", str(PORT), "--directory", str(ROOT),
+        sys.executable, "-u", str(ROOT / "control_server.py"),
     ], cwd=ROOT))
 
     if not wait_for_visualizer():

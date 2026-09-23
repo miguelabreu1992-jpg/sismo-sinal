@@ -8,6 +8,7 @@ import json
 import os
 import threading
 import time
+import urllib.request
 
 import numpy as np
 from obspy import UTCDateTime
@@ -25,6 +26,7 @@ WAVEFORM_LOG = "orquestra_sismo_waveforms.json"
 MIDI_PORT_NAME = "Sismo Orchestra MIDI"
 MIDI_NOTE_DURATION = 0.35
 BUFFER_INICIAL = 30
+CONTROL_URL = "http://127.0.0.1:8766/api/threshold"
 
 # As estacoes foram escolhidas por atividade RMS recente, mantendo distancia
 # geografica entre elas dentro de cada continente.
@@ -62,6 +64,17 @@ pending_events = []
 pending_events_condition = threading.Condition()
 event_sequence = 0
 playback_offset = None
+
+
+def atualizar_threshold():
+    global THRESHOLD
+    try:
+        with urllib.request.urlopen(CONTROL_URL, timeout=1) as response:
+            value = json.loads(response.read()).get("threshold")
+            if value is not None:
+                THRESHOLD = min(max(float(value), 0.0), 1.0)
+    except (OSError, ValueError, json.JSONDecodeError):
+        pass
 
 
 class WindowsMidiOutput:
@@ -268,6 +281,7 @@ def main():
         pending_events_condition.notify_all()
 
     while True:
+        atualizar_threshold()
         end = next_window_end
         start = end - JANELA_SEGUNDOS
         waveforms = {}
