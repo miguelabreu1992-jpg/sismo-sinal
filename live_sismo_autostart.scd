@@ -18,10 +18,17 @@ startButton.action_({
     window.close;
 
     s.waitForBoot({
-        SynthDef(\sismoNota, { |freq = 440, amp = 0.3, dur = 0.3, out = 0|
-            var env = EnvGen.kr(Env.perc(0.005, dur), doneAction: 2);
-            var sig = SinOsc.ar(freq) * env * amp;
+        SynthDef(\sismoNota, { |freq = 440, amp = 0.3, dur = 0.3, out = 16|
+            var env = EnvGen.kr(Env.perc(0.012, dur), doneAction: 2);
+            var sig = SinOsc.ar(freq) * env * amp * 0.22;
             Out.ar(out, sig ! 2);
+        }).add;
+
+        SynthDef(\sismoMaster, { |in = 16, out = 0|
+            var sig = In.ar(in, 2);
+            sig = LeakDC.ar(sig);
+            sig = Limiter.ar(sig, 0.82, 0.01);
+            Out.ar(out, sig);
         }).add;
 
         OSCdef(\sismoListener, { |msg|
@@ -32,6 +39,7 @@ startButton.action_({
         }, '/sismo');
 
         s.sync;
+        Synth(\sismoMaster, [], addAction: \addToTail);
         Synth(\sismoNota, [\freq, 440, \amp, 0.2, \dur, 0.8]);
         "Receptor sismo ativo em /sismo".postln;
     });
