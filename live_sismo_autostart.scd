@@ -27,7 +27,7 @@ startButton.action_({
         SynthDef(\sismoMaster, { |in = 16, out = 0|
             var sig = In.ar(in, 2);
             sig = LeakDC.ar(sig);
-            sig = Limiter.ar(sig, 0.82, 0.01);
+            sig = Limiter.ar(sig * 1.8, 0.82, 0.01);
             Out.ar(out, sig);
         }).add;
 
