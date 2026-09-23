@@ -3,6 +3,7 @@
 import csv
 import ctypes
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import heapq
 import json
 import os
 import threading
@@ -23,6 +24,7 @@ EVENT_LOG = "orquestra_sismo_events.csv"
 WAVEFORM_LOG = "orquestra_sismo_waveforms.json"
 MIDI_PORT_NAME = "Sismo Orchestra MIDI"
 MIDI_NOTE_DURATION = 0.35
+ATRASO_REPRODUCAO = 15
 
 # As estacoes foram escolhidas por atividade RMS recente, mantendo distancia
 # geografica entre elas dentro de cada continente.
@@ -56,6 +58,9 @@ osc_client = SimpleUDPClient(OSC_IP, OSC_PORT)
 midi_out = None
 midi_lock = threading.Lock()
 last_peak_by_station = {station["nome"]: -999.0 for station in ESTACOES}
+pending_events = []
+pending_events_condition = threading.Condition()
+event_sequence = 0
 
 
 class WindowsMidiOutput:
@@ -182,7 +187,8 @@ def registar_evento(event_time, station_name, amplitude_signal, midi_note, freq,
         })
 
 
-def enviar_pico(station, event_time, amplitude_signal):
+def agendar_pico(station, event_time, amplitude_signal):
+    global event_sequence
     station_name = station["nome"]
     event_seconds = float(event_time)
     if event_seconds - last_peak_by_station[station_name] <= MIN_GAP_SECONDS:
@@ -194,11 +200,31 @@ def enviar_pico(station, event_time, amplitude_signal):
     amp = min(max(amplitude_signal, 0.1), 0.9)
     velocity = round(1 + amp * 126)
 
-    osc_client.send_message("/sismo", [float(freq), float(amp)])
-    enviar_midi(midi_note, velocity)
     registar_evento(event_time, station_name, amplitude_signal, midi_note, freq, amp)
     last_peak_by_station[station_name] = event_seconds
-    print(f"{station_name}: pico {event_time} | nota {midi_note} | {freq:.1f} Hz")
+    with pending_events_condition:
+        event_sequence += 1
+        heapq.heappush(pending_events, (event_seconds, event_sequence, freq, amp, midi_note, station_name))
+        pending_events_condition.notify()
+
+
+def reproduzir_eventos():
+    """Toca eventos no tempo original, com atraso para preservar a cronologia."""
+    while True:
+        with pending_events_condition:
+            while not pending_events:
+                pending_events_condition.wait()
+            event_seconds, _, freq, amp, midi_note, station_name = pending_events[0]
+            target_time = event_seconds + ATRASO_REPRODUCAO
+            wait_time = target_time - time.time()
+            if wait_time > 0:
+                pending_events_condition.wait(timeout=wait_time)
+                continue
+            heapq.heappop(pending_events)
+
+        osc_client.send_message("/sismo", [float(freq), float(amp)])
+        enviar_midi(midi_note, round(1 + amp * 126))
+        print(f"{station_name}: a tocar {midi_note} | {freq:.1f} Hz", flush=True)
 
 
 def processar_estacao(station, start, end):
@@ -220,7 +246,7 @@ def processar_estacao(station, start, end):
             is_local_max = normalized[index] > normalized[index - 1] and normalized[index] > normalized[index + 1]
             if is_local_max and normalized[index] > THRESHOLD:
                 event_time = trace.stats.starttime + index / sample_rate
-                enviar_pico(station, event_time, float(normalized[index]))
+                agendar_pico(station, event_time, float(normalized[index]))
         return forma_onda(trace, centered_data), centered_data
 
 
@@ -228,11 +254,13 @@ def main():
     names = ", ".join(station["nome"] for station in ESTACOES)
     print(f"Orquestra ativa: {names}")
     abrir_midi()
-    print(f"A atualizar a cada {INTERVALO_ENTRE_PEDIDOS}s com janelas de {JANELA_SEGUNDOS}s.")
+    scheduler = threading.Thread(target=reproduzir_eventos, daemon=True)
+    scheduler.start()
+    print(f"A recolher a cada {INTERVALO_ENTRE_PEDIDOS}s e a tocar com {ATRASO_REPRODUCAO}s de atraso.")
     print("Ctrl+C para parar.\n")
 
     while True:
-        end = UTCDateTime.now()
+        end = UTCDateTime.now() - ATRASO_REPRODUCAO
         start = end - JANELA_SEGUNDOS
         waveforms = {}
         grouped_samples = {continent: [] for continent in CONTINENTES}
