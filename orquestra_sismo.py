@@ -56,6 +56,7 @@ ESTACOES = [
     {"nome": "SBA", "continente": "Antartida", "network": "IU", "station": "SBA", "channel": "BHZ", "min_note": 62, "max_note": 70},
 ]
 CONTINENTES = ["America do Norte", "America do Sul", "Europa", "Asia", "Africa", "Oceania", "Antartida"]
+STATION_INDEX = {station["nome"]: index for index, station in enumerate(ESTACOES)}
 
 client = Client("EARTHSCOPE")
 osc_client = SimpleUDPClient(OSC_IP, OSC_PORT)
@@ -240,7 +241,15 @@ def reproduzir_eventos():
             heapq.heappop(pending_events)
 
         osc_client.send_message("/sismo", [float(freq), float(amp)])
+        station_index = STATION_INDEX[station_name]
+        with pending_events_condition:
+            local_activity = sum(
+                queued[3]
+                for queued in pending_events
+                if abs(queued[0] - event_seconds) <= MIN_GAP_SECONDS
+            ) + amp
         osc_client.send_message("/sismoEstacao", [float(freq), float(amp), station_name])
+        osc_client.send_message("/sismoPoligono", [station_index, float(amp), float(local_activity)])
         touchdesigner_client.send_message("/sismo", [float(freq), float(amp)])
         enviar_midi(midi_note, round(1 + amp * 126))
         print(f"{station_name}: a tocar {midi_note} | {freq:.1f} Hz", flush=True)
