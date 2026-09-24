@@ -18,6 +18,7 @@ from pythonosc.udp_client import SimpleUDPClient
 INTERVALO_ENTRE_PEDIDOS = 15
 JANELA_SEGUNDOS = 15
 THRESHOLD = 0.08
+MAX_THRESHOLD = 0.35
 MIN_GAP_SECONDS = 1.5
 OSC_IP = "127.0.0.1"
 OSC_PORT = 57120
@@ -74,7 +75,7 @@ def atualizar_threshold():
         with urllib.request.urlopen(CONTROL_URL, timeout=1) as response:
             value = json.loads(response.read()).get("threshold")
             if value is not None:
-                THRESHOLD = min(max(float(value), 0.0), 1.0)
+                THRESHOLD = min(max(float(value), 0.0), MAX_THRESHOLD)
     except (OSError, ValueError, json.JSONDecodeError):
         pass
 
@@ -239,6 +240,7 @@ def reproduzir_eventos():
             heapq.heappop(pending_events)
 
         osc_client.send_message("/sismo", [float(freq), float(amp)])
+        osc_client.send_message("/sismoEstacao", [float(freq), float(amp), station_name])
         touchdesigner_client.send_message("/sismo", [float(freq), float(amp)])
         enviar_midi(midi_note, round(1 + amp * 126))
         print(f"{station_name}: a tocar {midi_note} | {freq:.1f} Hz", flush=True)

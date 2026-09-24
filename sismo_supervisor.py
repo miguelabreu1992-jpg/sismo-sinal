@@ -78,9 +78,8 @@ def main():
 
     sclang = find_sclang()
     print("A iniciar o receptor SuperCollider...", flush=True)
-    children.append(subprocess.Popen([
-        sclang, "-D", str(ROOT / "live_sismo_autostart.scd"),
-    ]))
+    sc_file = ROOT / os.environ.get("SISMO_SC_FILE", "live_sismo_autostart.scd")
+    children.append(subprocess.Popen([sclang, "-D", str(sc_file)]))
 
     print("Escolhe a saida na janela do SuperCollider e clica em 'Iniciar audio'.", flush=True)
     print("A aguardar o arranque do servidor de audio...", flush=True)
