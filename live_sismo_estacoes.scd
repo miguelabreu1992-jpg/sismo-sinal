@@ -8,9 +8,9 @@ var startButton;
 var iniciarAudio;
 
 makeSynth = { |name, body|
-    SynthDef(name, { |freq = 440, amp = 0.3, dur = 0.3, out = 16|
+    SynthDef(name, { |freq = 440, amp = 0.3, dur = 0.3, out = 0|
         var env = EnvGen.kr(Env.perc(0.012, dur), doneAction: 2);
-        var sig = body.value(freq, amp) * env * 0.18;
+        var sig = body.value(freq, amp) * env * 0.08;
         Out.ar(out, sig ! 2);
     }).add;
 };
@@ -25,11 +25,6 @@ makeSynth.(\sismoAntartida, { |freq, amp| SinOsc.ar(freq * 0.5) * SinOsc.ar(freq
 
 iniciarAudio = {
     s.waitForBoot({
-        SynthDef(\sismoMasterEstacoes, { |in = 16, out = 0|
-        var sig = LeakDC.ar(In.ar(in, 2));
-        Out.ar(out, Limiter.ar(sig * 1.8, 0.82, 0.01));
-        }).add;
-
         OSCdef(\sismoEstacaoListener, { |msg|
         var freq = msg[1].asFloat;
         var amp = msg[2].asFloat;
@@ -45,9 +40,15 @@ iniciarAudio = {
         ("Estacao: " ++ station ++ " | synth: " ++ synthName).postln;
         }, '/sismoEstacao');
 
+        OSCdef(\sismoFallbackListener, { |msg|
+            var freq = msg[1].asFloat;
+            var amp = msg[2].asFloat;
+            Synth(\sismoNorte, [\freq, freq, \amp, amp, \dur, 0.3]);
+            ("OSC fallback: " ++ freq ++ " Hz").postln;
+        }, '/sismo');
+
         s.sync;
-        Synth(\sismoMasterEstacoes, [], addAction: \addToTail);
-        Synth(\sismoNorte, [\freq, 440, \amp, 0.08, \dur, 0.25]);
+        Synth(\sismoNorte, [\freq, 440, \amp, 0.8, \dur, 0.8]);
         "Receptor de synths por estacao ativo em /sismoEstacao".postln;
     });
 };
