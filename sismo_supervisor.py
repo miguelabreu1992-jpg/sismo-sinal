@@ -104,8 +104,9 @@ def main():
     print("Sistema ativo. Fechar esta consola encerra todos os processos.", flush=True)
     while not shutting_down:
         time.sleep(1)
-        if any(process.poll() is not None for process in children):
-            print("Um servico terminou; a encerrar o sistema.", flush=True)
+        finished = [process for process in children if process.poll() is not None]
+        if finished:
+            print(f"Um servico terminou (PID {finished[0].pid}, codigo {finished[0].returncode}); a encerrar o sistema.", flush=True)
             shutdown()
 
 

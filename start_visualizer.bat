@@ -29,7 +29,7 @@ if not defined PYTHON (
 
 echo A limpar o servidor anterior do visualizador...
 for /f "tokens=5" %%P in ('netstat -ano -p tcp ^| findstr ":%PORT%"') do taskkill /PID %%P /T /F >nul 2>&1
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*http.server %PORT%*' -or $_.CommandLine -like '*recent_activity_sismo.py*' -or $_.CommandLine -like '*orquestra_sismo.py*' -or $_.CommandLine -like '*live_sismo_tempo_real.py*' -or $_.CommandLine -like '*notable_events_sismo.py*' -or $_.CommandLine -like '*live_sismo_autostart.scd*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*http.server %PORT%*' -or $_.CommandLine -like '*control_server.py*' -or $_.CommandLine -like '*sismo_supervisor.py*' -or $_.CommandLine -like '*recent_activity_sismo.py*' -or $_.CommandLine -like '*orquestra_sismo.py*' -or $_.CommandLine -like '*live_sismo_tempo_real.py*' -or $_.CommandLine -like '*notable_events_sismo.py*' -or $_.CommandLine -like '*live_sismo_autostart.scd*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
 for /f "tokens=4" %%P in ('netstat -ano -p udp ^| findstr ":57120"') do taskkill /PID %%P /T /F >nul 2>&1
 for /f "tokens=4" %%P in ('netstat -ano -p udp ^| findstr ":57110"') do taskkill /PID %%P /T /F >nul 2>&1
 
