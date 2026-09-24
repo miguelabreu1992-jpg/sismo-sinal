@@ -21,7 +21,7 @@ makeSynth.(\sismoEuropa, { |freq, amp| SinOsc.ar(freq) * (1 + SinOsc.kr(3).range
 makeSynth.(\sismoAsia, { |freq, amp| PMOsc.ar(freq, freq * 1.5, 1.5) * amp });
 makeSynth.(\sismoAfrica, { |freq, amp| (PinkNoise.ar(0.35) + SinOsc.ar(freq)) * amp });
 makeSynth.(\sismoOceania, { |freq, amp| SinOsc.ar(freq, SinOsc.kr(2).range(-1, 1)) * amp });
-makeSynth.(\sismoAntartida, { |freq, amp| SinOsc.ar(freq * 0.5) * SinOsc.ar(freq) * amp });
+makeSynth.(\sismoAntartida, { |freq, amp| SinOsc.ar(freq) * amp });
 
 iniciarAudio = {
     s.waitForBoot({
